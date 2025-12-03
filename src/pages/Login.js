@@ -12,7 +12,7 @@ export default function Login() {
     try {
       await login(username, password);
       Swal.fire("Bienvenido", "Inicio de sesión exitoso", "success");
-      window.location.href = "/productos";
+      window.location.href = "/dashboard";
     } catch {
       Swal.fire("Error", "Credenciales incorrectas", "error");
     }

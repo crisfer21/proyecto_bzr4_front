@@ -8,6 +8,7 @@ import Login from "./pages/Login";
 import Productos from "./pages/Productos";
 import Ventas from "./pages/Ventas";
 import Reportes from "./pages/Reportes";
+import Dashboard from "./pages/Dashboard";
 
 function App() {
   return (
@@ -18,6 +19,15 @@ function App() {
         <Routes>
           <Route path="/" element={<Login />} />
           <Route path="/login" element={<Login />} />
+
+          <Route 
+            path="/dashboard"
+            element={
+              <ProtectedRoute roles={["admin", "vendedor"]}>
+                <Dashboard />
+              </ProtectedRoute>
+            }
+          />
 
           <Route 
             path="/productos"

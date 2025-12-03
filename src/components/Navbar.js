@@ -9,13 +9,20 @@ export default function Navbar() {
     <nav style={{ padding: "10px", background: "#333", color: "#fff" }}>
       {user && (
         <>
-          <Link style={{ margin: 10 }} to="/productos">Productos</Link>
-          <Link style={{ margin: 10 }} to="/ventas">Ventas</Link>
+          <Link style={{ margin: 10 }} to="/dashboard">dashboard</Link>
 
           {user.role === "admin" && (
-            <Link style={{ margin: 10 }} to="/reportes">Reportes</Link>
+            <>
+              <Link style={{ margin: 10 }} to="/productos">Productos</Link>
+              <Link style={{ margin: 10 }} to="/reportes">Reportes</Link>
+            </>
           )}
+          
 
+          {user.role === "vendedor" && (
+            <Link style={{ margin: 10 }} to="/ventas">Ventas</Link>
+          )}
+          
           <button onClick={logout} style={{ float: "right" }}>
             Cerrar sesión
           </button>
