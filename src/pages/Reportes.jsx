@@ -1,235 +1,264 @@
-import React, { useEffect, useState } from "react";
-import api from "../api/axios";
+import React, { useState, useEffect } from 'react';
+import api from '../api/axios'; // Tu instancia configurada
 
-export default function Reportes() {
-  const [ventas, setVentas] = useState([]);
-  const [loading, setLoading] = useState(false);
+const Reportes = () => {
+  // --- Estados de Datos ---
+  const [todasBoletas, setTodasBoletas] = useState([]);
+  const [todasFacturas, setTodasFacturas] = useState([]);
+  const [vendedores, setVendedores] = useState([]);
+  
+  // --- Estados de Filtros ---
+  const [filtroVendedor, setFiltroVendedor] = useState('');
+  const [filtroFecha, setFiltroFecha] = useState('');
+  
+  // --- Estados de Resultados (Datos procesados) ---
+  const [resumenBoletas, setResumenBoletas] = useState({ cantidad: 0, neto: 0, iva: 0, total: 0 });
+  const [resumenFacturas, setResumenFacturas] = useState({ cantidad: 0, neto: 0, iva: 0, total: 0, lista: [] });
+  
+  const [loading, setLoading] = useState(true);
 
-  // --- ESTADOS PARA FILTROS ---
-  const [filtroVendedor, setFiltroVendedor] = useState("");
-  const [fechaFiltro, setFechaFiltro] = useState("");
-
-  // --- 1. CARGA DE DATOS ---
+  // 1. Cargar datos iniciales al montar el componente
   useEffect(() => {
-    const fetchVentas = async () => {
-      setLoading(true);
+    const cargarDatos = async () => {
       try {
-        const response = await api.get("/ventas/");
-        setVentas(response.data);
+        setLoading(true);
+        // Hacemos las peticiones en paralelo para mayor velocidad
+        const [resBoletas, resFacturas, resUsuarios] = await Promise.all([
+          api.get('boletas/'),
+          api.get('facturas/'),
+          api.get('usuarios/') // Asumiendo que tienes un endpoint para listar vendedores
+        ]);
+
+        setTodasBoletas(resBoletas.data);
+        setTodasFacturas(resFacturas.data);
+        setVendedores(resUsuarios.data);
+        
       } catch (error) {
-        console.error("Error al cargar reporte:", error);
+        console.error("Error cargando reporte:", error);
       } finally {
         setLoading(false);
       }
     };
-    fetchVentas();
+
+    cargarDatos();
   }, []);
 
-  // --- 2. LÓGICA DE FILTRADO ---
-  const ventasFiltradas = ventas.filter((venta) => {
-    const coincideVendedor = venta.vendedor
-      ? venta.vendedor.toLowerCase().includes(filtroVendedor.toLowerCase())
-      : true;
+  // 2. Efecto para recalcular cuando cambian los filtros o los datos
+  useEffect(() => {
+    aplicarFiltros();
+  }, [filtroVendedor, filtroFecha, todasBoletas, todasFacturas]);
 
-    const fechaVenta = venta.fecha.split("T")[0];
-    const coincideFecha = fechaFiltro ? fechaVenta === fechaFiltro : true;
+  // --- Lógica de Filtrado y Cálculo ---
+  const aplicarFiltros = () => {
+    // A. Filtrar Boletas
+    const boletasFiltradas = todasBoletas.filter(b => {
+      const cumpleVendedor = filtroVendedor ? b.vendedor === parseInt(filtroVendedor) : true;
+      // Convertimos la fecha ISO del backend (YYYY-MM-DDTHH:mm:ss) a YYYY-MM-DD para comparar
+      const fechaVenta = b.fecha.split('T')[0]; 
+      const cumpleFecha = filtroFecha ? fechaVenta === filtroFecha : true;
+      return cumpleVendedor && cumpleFecha;
+    });
 
-    return coincideVendedor && coincideFecha;
-  });
+    // B. Filtrar Facturas
+    const facturasFiltradas = todasFacturas.filter(f => {
+      const cumpleVendedor = filtroVendedor ? f.vendedor === parseInt(filtroVendedor) : true;
+      const fechaVenta = f.fecha.split('T')[0];
+      const cumpleFecha = filtroFecha ? fechaVenta === filtroFecha : true;
+      return cumpleVendedor && cumpleFecha;
+    });
 
-  // --- 3. CÁLCULOS DE TOTALES ---
-  const calcularTotales = (tipo) => {
-    const lista = ventasFiltradas.filter((v) => v.tipo_documento === tipo);
-    return {
-      cantidad: lista.length,
-      subtotal: lista.reduce((acc, item) => acc + parseFloat(item.subtotal), 0),
-      iva: lista.reduce((acc, item) => acc + parseFloat(item.iva), 0),
-      total: lista.reduce((acc, item) => acc + parseFloat(item.total), 0),
-      lista: lista,
-    };
+    // C. Calcular Totales Boletas
+    const totalBoletas = boletasFiltradas.reduce((acc, curr) => ({
+        neto: acc.neto + parseFloat(curr.total_neto),
+        iva: acc.iva + parseFloat(curr.total_iva),
+        total: acc.total + parseFloat(curr.total_final)
+    }), { neto: 0, iva: 0, total: 0 });
+
+    setResumenBoletas({
+      cantidad: boletasFiltradas.length,
+      neto: totalBoletas.neto,
+      iva: totalBoletas.iva,
+      total: totalBoletas.total
+    });
+
+    // D. Calcular Totales Facturas
+    const totalFacturas = facturasFiltradas.reduce((acc, curr) => ({
+        neto: acc.neto + parseFloat(curr.total_neto),
+        iva: acc.iva + parseFloat(curr.total_iva),
+        total: acc.total + parseFloat(curr.total_final)
+    }), { neto: 0, iva: 0, total: 0 });
+
+    setResumenFacturas({
+      cantidad: facturasFiltradas.length,
+      neto: totalFacturas.neto,
+      iva: totalFacturas.iva,
+      total: totalFacturas.total,
+      lista: facturasFiltradas // Guardamos la lista para la tabla
+    });
   };
 
-  const datosBoleta = calcularTotales("boleta");
-  const datosFactura = calcularTotales("factura");
+  // --- Helper para formato moneda (CLP) ---
+  const formatoMoneda = (valor) => {
+    return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(valor);
+  };
 
-  // --- 4. RENDERIZADO ---
+  if (loading) return <div className="text-center mt-5">Generando reporte...</div>;
+
   return (
-    <div className="container py-5">
-      {/* Título Principal */}
-      <h2 className="mb-4 pb-2 border-bottom border-2 text-primary fw-bold">
-        <i className="bi bi-bar-chart-line-fill me-2"></i>
-        Reporte Diario de Ventas
-      </h2>
+    <div className="container mt-4 mb-5">
+      <h2 className="mb-4 text-primary border-bottom pb-2">Reporte de Ventas</h2>
 
-      {/* --- SECCIÓN DE FILTROS (Card Bootstrap) --- */}
-      <div className="card shadow-sm mb-5 border-0 bg-light">
-        <div className="card-header bg-white py-3">
-          <h5 className="mb-0 text-secondary fw-bold">
-             🔍 Filtros de Búsqueda
-          </h5>
-        </div>
+      {/* --- SECCIÓN DE FILTROS --- */}
+      <div className="card mb-4 bg-light">
         <div className="card-body">
           <div className="row g-3">
-            {/* Filtro Vendedor */}
             <div className="col-md-6">
-              <label className="form-label fw-bold">Vendedor</label>
-              <input
-                type="text"
-                className="form-control"
-                placeholder="Buscar por nombre..."
+              <label className="form-label fw-bold">Filtrar por Vendedor:</label>
+              <select 
+                className="form-select"
                 value={filtroVendedor}
                 onChange={(e) => setFiltroVendedor(e.target.value)}
+              >
+                <option value="">Todos los vendedores</option>
+                {vendedores.map(v => (
+                  <option key={v.id} value={v.id}>
+                    {v.username} {v.first_name ? `- ${v.first_name}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            <div className="col-md-6">
+              <label className="form-label fw-bold">Filtrar por Fecha:</label>
+              <input 
+                type="date" 
+                className="form-control" 
+                value={filtroFecha}
+                onChange={(e) => setFiltroFecha(e.target.value)}
               />
             </div>
+          </div>
+        </div>
+      </div>
 
-            {/* Filtro Fecha */}
-            <div className="col-md-6">
-              <label className="form-label fw-bold">Seleccionar Día</label>
-              <input
-                type="date"
-                className="form-control"
-                value={fechaFiltro}
-                onChange={(e) => setFechaFiltro(e.target.value)}
-              />
-              <div className="form-text">
-                Deja vacío para ver el histórico completo.
+      {/* --- REPORTE BOLETAS --- */}
+      <h4 className="text-secondary">Resumen Boletas</h4>
+      <div className="row mb-4">
+        {/* Cantidad */}
+        <div className="col-md-3">
+          <div className="card text-white bg-info h-100">
+            <div className="card-body text-center">
+              <h6 className="card-title">Cantidad Emitida</h6>
+              <h2 className="display-6 fw-bold">{resumenBoletas.cantidad}</h2>
+            </div>
+          </div>
+        </div>
+        
+        {/* Dinero */}
+        <div className="col-md-9">
+          <div className="card h-100 border-info">
+            <div className="card-body">
+              <div className="row text-center">
+                <div className="col-md-4 border-end">
+                  <h6 className="text-muted">Total Neto</h6>
+                  <h4 className="text-dark">{formatoMoneda(resumenBoletas.neto)}</h4>
+                </div>
+                <div className="col-md-4 border-end">
+                  <h6 className="text-muted">Total IVA (19%)</h6>
+                  <h4 className="text-dark">{formatoMoneda(resumenBoletas.iva)}</h4>
+                </div>
+                <div className="col-md-4">
+                  <h6 className="text-primary fw-bold">TOTAL VENTA</h6>
+                  <h3 className="text-primary">{formatoMoneda(resumenBoletas.total)}</h3>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {loading ? (
-        <div className="text-center py-5">
-          <div className="spinner-border text-primary" role="status">
-            <span className="visually-hidden">Cargando...</span>
+      <hr />
+
+      {/* --- REPORTE FACTURAS --- */}
+      <h4 className="text-secondary mt-4">Resumen Facturas</h4>
+      
+      {/* Totales Factura (Cards) */}
+      <div className="row mb-4">
+        <div className="col-md-3">
+          <div className="card text-white bg-warning h-100">
+            <div className="card-body text-center">
+              <h6 className="card-title">Cantidad Emitida</h6>
+              <h2 className="display-6 fw-bold">{resumenFacturas.cantidad}</h2>
+            </div>
           </div>
-          <p className="mt-2 text-muted">Generando reporte...</p>
         </div>
-      ) : (
-        <>
-          {/* --- TARJETAS DE RESUMEN --- */}
-          <div className="row g-4 mb-5">
-            {/* TARJETA BOLETAS (Estilo Azul/Primary) */}
-            <div className="col-md-6">
-              <div className="card h-100 shadow-sm border-start border-4 border-primary">
-                <div className="card-body">
-                  <div className="d-flex justify-content-between align-items-center mb-4">
-                    <h4 className="card-title text-primary fw-bold m-0">Resumen Boletas</h4>
-                    <span className="badge bg-primary rounded-pill">BOLETA</span>
-                  </div>
-
-                  <ul className="list-group list-group-flush">
-                    <li className="list-group-item d-flex justify-content-between">
-                      <span className="text-muted">Cantidad</span>
-                      <span className="fw-bold">{datosBoleta.cantidad}</span>
-                    </li>
-                    <li className="list-group-item d-flex justify-content-between">
-                      <span className="text-muted">Subtotal</span>
-                      <span>${datosBoleta.subtotal.toFixed(2)}</span>
-                    </li>
-                    <li className="list-group-item d-flex justify-content-between">
-                      <span className="text-muted">IVA (19%)</span>
-                      <span>${datosBoleta.iva.toFixed(2)}</span>
-                    </li>
-                    <li className="list-group-item d-flex justify-content-between bg-light mt-2 rounded">
-                      <span className="fw-bold">Total</span>
-                      <span className="fw-bold text-primary fs-5">
-                        ${datosBoleta.total.toFixed(2)}
-                      </span>
-                    </li>
-                  </ul>
+        <div className="col-md-9">
+           <div className="card h-100 border-warning">
+            <div className="card-body">
+              <div className="row text-center">
+                 <div className="col-md-4 border-end">
+                  <h6 className="text-muted">Total Neto</h6>
+                  <h4 className="text-dark">{formatoMoneda(resumenFacturas.neto)}</h4>
                 </div>
-              </div>
-            </div>
-
-            {/* TARJETA FACTURAS (Estilo Verde/Success) */}
-            <div className="col-md-6">
-              <div className="card h-100 shadow-sm border-start border-4 border-success">
-                <div className="card-body">
-                  <div className="d-flex justify-content-between align-items-center mb-4">
-                    <h4 className="card-title text-success fw-bold m-0">Resumen Facturas</h4>
-                    <span className="badge bg-success rounded-pill">FACTURA</span>
-                  </div>
-
-                  <ul className="list-group list-group-flush">
-                    <li className="list-group-item d-flex justify-content-between">
-                      <span className="text-muted">Cantidad</span>
-                      <span className="fw-bold">{datosFactura.cantidad}</span>
-                    </li>
-                    <li className="list-group-item d-flex justify-content-between">
-                      <span className="text-muted">Subtotal</span>
-                      <span>${datosFactura.subtotal.toFixed(2)}</span>
-                    </li>
-                    <li className="list-group-item d-flex justify-content-between">
-                      <span className="text-muted">IVA (19%)</span>
-                      <span>${datosFactura.iva.toFixed(2)}</span>
-                    </li>
-                    <li className="list-group-item d-flex justify-content-between bg-light mt-2 rounded">
-                      <span className="fw-bold">Total</span>
-                      <span className="fw-bold text-success fs-5">
-                        ${datosFactura.total.toFixed(2)}
-                      </span>
-                    </li>
-                  </ul>
+                <div className="col-md-4 border-end">
+                  <h6 className="text-muted">Total IVA</h6>
+                  <h4 className="text-dark">{formatoMoneda(resumenFacturas.iva)}</h4>
+                </div>
+                <div className="col-md-4">
+                  <h6 className="text-warning fw-bold text-dark">TOTAL FACTURADO</h6>
+                  <h3 className="text-dark">{formatoMoneda(resumenFacturas.total)}</h3>
                 </div>
               </div>
             </div>
           </div>
+        </div>
+      </div>
 
-          {/* --- LISTADO DETALLADO (Tabla) --- */}
-          <div className="card shadow border-0">
-            <div className="card-header bg-dark text-white py-3">
-              <h5 className="m-0">
-                 📋 Detalle de Ventas con Factura {fechaFiltro && <small className="text-muted ms-2">({fechaFiltro})</small>}
-              </h5>
-            </div>
-            
-            <div className="card-body p-0">
-              {datosFactura.lista.length === 0 ? (
-                <div className="text-center py-5 text-muted">
-                  <i className="bi bi-inbox fs-1 d-block mb-2"></i>
-                  No hay facturas registradas con estos filtros.
-                </div>
-              ) : (
-                <div className="table-responsive">
-                  <table className="table table-striped table-hover mb-0 align-middle">
-                    <thead className="table-secondary text-uppercase text-secondary small">
-                      <tr>
-                        <th className="ps-4">Nº Factura</th>
-                        <th>Hora</th>
-                        <th>Vendedor</th>
-                        <th className="text-end">Neto</th>
-                        <th className="text-end">IVA</th>
-                        <th className="text-end pe-4">Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {datosFactura.lista.map((venta) => (
-                        <tr key={venta.id}>
-                          <td className="ps-4 fw-bold text-dark">#{venta.id}</td>
-                          <td className="text-muted">
-                            {new Date(venta.fecha).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </td>
-                          <td className="text-capitalize">{venta.vendedor}</td>
-                          <td className="text-end">${parseFloat(venta.subtotal).toFixed(2)}</td>
-                          <td className="text-end text-muted">${parseFloat(venta.iva).toFixed(2)}</td>
-                          <td className="text-end pe-4 fw-bold text-success">
-                            ${parseFloat(venta.total).toFixed(2)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+      {/* Tabla Detalle Facturas */}
+      <div className="card shadow-sm">
+        <div className="card-header bg-dark text-white">
+          Detalle de Facturas Emitidas
+        </div>
+        <div className="card-body p-0">
+          <div className="table-responsive">
+            <table className="table table-striped table-hover mb-0">
+              <thead>
+                <tr>
+                  <th>N° Factura</th>
+                  <th>Fecha</th>
+                  <th>Razón Social</th>
+                  <th className="text-end">Neto</th>
+                  <th className="text-end">IVA</th>
+                  <th className="text-end">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resumenFacturas.lista.length > 0 ? (
+                  resumenFacturas.lista.map((fac) => (
+                    <tr key={fac.id}>
+                      <td className="fw-bold">{fac.numero_factura}</td>
+                      <td>{new Date(fac.fecha).toLocaleDateString()}</td>
+                      <td>{fac.razon_social}</td>
+                      <td className="text-end">{formatoMoneda(fac.total_neto)}</td>
+                      <td className="text-end">{formatoMoneda(fac.total_iva)}</td>
+                      <td className="text-end fw-bold text-primary">{formatoMoneda(fac.total_final)}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="6" className="text-center py-3 text-muted">
+                      No hay facturas que coincidan con los filtros.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
-        </>
-      )}
+        </div>
+      </div>
+
     </div>
   );
-}
+};
+
+export default Reportes;

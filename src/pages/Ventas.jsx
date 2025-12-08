@@ -1,203 +1,241 @@
-import React, { useEffect, useState } from "react";
-import api from "../api/axios";
-// Nota: Verifica que tus rutas de importación sean correctas, 
-// parece que los nombres de archivo estaban invertidos en tu original.
-import { CatalogoProductos } from "../components/ventas/CatalogoProductos";
-import { DatosVentaForm } from "../components/ventas/DatosVentaForm";
-import { TablaCarrito } from "../components/ventas/ResumenTotales"; 
-import { ResumenTotales } from "../components/ventas/TablaCarrito";
+import React, { useState } from 'react';
+// IMPORTANTE: Importa tu instancia personalizada en lugar de la librería por defecto
+// Ajusta la ruta '../api/axios' según donde guardaste tu archivo axios.js
+import api from '../api/axios'; 
 
-export default function VentasApp() {
-  // ----------------------------------------------------
-  // 1. LÓGICA Y ESTADO (INTACTO)
-  // ----------------------------------------------------
-  const [activeTab, setActiveTab] = useState("productos");
-  const [search, setSearch] = useState("");
+const Ventas = () => {
+  // --- Estados ---
+  const [query, setQuery] = useState('');
   const [productos, setProductos] = useState([]);
   const [carrito, setCarrito] = useState([]);
+  const [tipoVenta, setTipoVenta] = useState('boleta'); // 'boleta' o 'factura'
   const [loading, setLoading] = useState(false);
   
-  const [formData, setFormData] = useState({
-    vendedor: "", 
-    tipoDocumento: "boleta",
+  // Datos específicos para Factura
+  const [datosFactura, setDatosFactura] = useState({
+    rut_cliente: '',
+    razon_social: '',
+    giro: '',
+    direccion: ''
   });
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
-
-  useEffect(() => {
-    const fetchProductos = async () => {
-      setLoading(true);
-      try {
-        const endpoint = search 
-          ? `/productos/?search=${encodeURIComponent(search)}` 
-          : '/productos/';
-        const response = await api.get(endpoint);
-        setProductos(response.data);
-      } catch (error) {
-        console.error("Error al buscar:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    const timerId = setTimeout(() => fetchProductos(), 500);
-    return () => clearTimeout(timerId);
-  }, [search]);
-
-  const agregarAlCarrito = (producto) => {
-    const existe = carrito.find((item) => item.id === producto.id);
-    if (existe) {
-      setCarrito(carrito.map((item) => item.id === producto.id ? { ...item, cantidad: item.cantidad + 1 } : item));
-    } else {
-      setCarrito([...carrito, { ...producto, cantidad: 1 }]);
-    }
-  };
-
-  const eliminarDelCarrito = (id) => {
-    setCarrito(carrito.filter((item) => item.id !== id));
-  };
-
-  const subtotal = carrito.reduce((acc, item) => acc + item.precio * item.cantidad, 0);
-  const iva = subtotal * 0.19;
-  const total = subtotal + iva;
-  const totalItems = carrito.reduce((acc, item) => acc + item.cantidad, 0);
-
-  const crearVenta = async () => {
-    if (carrito.length === 0) return alert("El carrito está vacío.");
-    if (!formData.vendedor.trim()) return alert("⚠️ Falta el vendedor.");
-
-    const detalles = carrito.map((item) => ({
-      producto: item.id,
-      cantidad: item.cantidad,
-      subtotal: item.precio * item.cantidad,
-    }));
-
-    const payload = {
-      vendedor: formData.vendedor,
-      tipo_documento: formData.tipoDocumento, // <--- CAMBIO CRÍTICO
-      subtotal,
-      iva,
-      total,
-      detalles
-    };
+  // --- 1. Buscar Productos ---
+  const buscarProductos = async (termino) => {
+    setQuery(termino);
+    if (termino.length < 2) return; 
 
     try {
-      await api.post('/ventas/', payload);
-      setCarrito([]);
-      setFormData(prev => ({ ...prev, vendedor: "" })); 
-      alert("✅ Venta realizada con éxito");
-      setActiveTab("productos");
-    } catch (e) {
-      console.error(e);
-      alert("❌ Error al procesar la venta");
+      // Usamos 'api' y una ruta relativa. El token se inyecta solo.
+      const response = await api.get(`productos/?search=${termino}`);
+      setProductos(response.data);
+    } catch (error) {
+      console.error("Error buscando productos:", error);
     }
   };
 
-  // ----------------------------------------------------
-  // 2. RENDERIZADO CON BOOTSTRAP
-  // ----------------------------------------------------
+  // --- 2. Gestión del Carrito ---
+  const agregarAlCarrito = (producto) => {
+    const existe = carrito.find(item => item.producto.id === producto.id);
+    
+    if (existe) {
+      setCarrito(carrito.map(item => 
+        item.producto.id === producto.id 
+          ? { ...item, cantidad: item.cantidad + 1 } 
+          : item
+      ));
+    } else {
+      setCarrito([...carrito, { producto, cantidad: 1 }]);
+    }
+  };
+
+  const eliminarDelCarrito = (productoId) => {
+    setCarrito(carrito.filter(item => item.producto.id !== productoId));
+  };
+
+  const calcularTotal = () => {
+    return carrito.reduce((acc, item) => acc + (item.producto.precio * item.cantidad), 0);
+  };
+
+  // --- 3. Manejo de Inputs de Factura ---
+  const handleFacturaChange = (e) => {
+    setDatosFactura({
+      ...datosFactura,
+      [e.target.name]: e.target.value
+    });
+  };
+
+  // --- 4. Procesar Venta (Checkout) ---
+  const realizarVenta = async () => {
+    if (carrito.length === 0) {
+      alert("El carrito está vacío");
+      return;
+    }
+
+    setLoading(true);
+
+    // Preparamos el array de detalles
+    const detallesPayload = carrito.map(item => ({
+      producto: item.producto.id,
+      cantidad: item.cantidad,
+      precio_unitario: item.producto.precio 
+    }));
+
+    // Datos base
+    let payload = {
+      detalles: detallesPayload,
+    };
+
+    // Endpoint relativo (sin http://localhost...)
+    let endpoint = '';
+    
+    if (tipoVenta === 'boleta') {
+      endpoint = 'boletas/';
+      payload.numero_boleta = `BOL-${Date.now()}`; 
+    } else {
+      endpoint = 'facturas/';
+      payload = { ...payload, ...datosFactura }; 
+      payload.numero_factura = `FAC-${Date.now()}`;
+    }
+
+    try {
+      // --- CAMBIO PRINCIPAL AQUÍ ---
+      // Ya no configuramos headers manuales ni leemos localStorage.
+      // Tu instancia 'api' lo hace automáticamente.
+      await api.post(endpoint, payload);
+      
+      alert(`Venta realizada con éxito! (${tipoVenta.toUpperCase()})`);
+      setCarrito([]); 
+      setDatosFactura({ rut_cliente: '', razon_social: '', giro: '', direccion: '' });
+      setProductos([]); // Opcional: limpiar búsqueda
+      setQuery('');
+      
+    } catch (error) {
+      console.error("Error en la venta:", error.response?.data || error);
+      alert("Hubo un error al procesar la venta. Revisa la consola.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- Renderizado ---
   return (
-    <div className="container py-5">
-      {/* Encabezado Principal */}
-      <div className="d-flex justify-content-between align-items-center mb-4">
-        <h2 className="fw-bold text-dark m-0">
-          <i className="bi bi-shop me-2"></i>Punto de Venta
-        </h2>
-        {/* Indicador de items totales visible en header */}
-        <span className="badge bg-secondary">
-            Total Items: {totalItems}
-        </span>
-      </div>
+    <div className="container mt-4">
+      <h2 className="mb-4">Punto de Venta (POS)</h2>
 
-      {/* --- NAVEGACIÓN TIPO TABS --- */}
-      <ul className="nav nav-tabs mb-4">
-        <li className="nav-item">
-          <button
-            className={`nav-link ${activeTab === "productos" ? "active fw-bold" : "text-muted"}`}
-            onClick={() => setActiveTab("productos")}
-          >
-            <i className="bi bi-grid-3x3-gap-fill me-2"></i>
-            Catálogo
-          </button>
-        </li>
-        <li className="nav-item">
-          <button
-            className={`nav-link ${activeTab === "carrito" ? "active fw-bold" : "text-muted"}`}
-            onClick={() => setActiveTab("carrito")}
-          >
-            <div className="d-flex align-items-center">
-                <i className="bi bi-cart-fill me-2"></i>
-                Carrito
-                {totalItems > 0 && (
-                <span className="badge bg-danger rounded-pill ms-2">
-                    {totalItems}
-                </span>
-                )}
-            </div>
-          </button>
-        </li>
-      </ul>
-
-      {/* --- CONTENIDO DE LAS PESTAÑAS --- */}
-      <div className="tab-content">
-        
-        {/* CASO A: CATÁLOGO */}
-        {activeTab === "productos" ? (
-          <div className="fade show active">
-            {/* Aquí se renderiza tu componente hijo */}
-            <CatalogoProductos
-              search={search}
-              setSearch={setSearch}
-              loading={loading}
-              productos={productos}
-              onAdd={agregarAlCarrito}
+      <div className="row">
+        {/* COLUMNA IZQUIERDA: BUSCADOR Y RESULTADOS */}
+        <div className="col-md-7">
+          <div className="card p-3 mb-3">
+            <h4>Buscar Producto</h4>
+            <input 
+              type="text" 
+              className="form-control" 
+              placeholder="Escribe nombre del producto..." 
+              value={query}
+              onChange={(e) => buscarProductos(e.target.value)}
             />
           </div>
-        ) : (
-          
-          /* CASO B: CARRITO (Dentro de una Card) */
-          <div className="fade show active">
-            <div className="card shadow border-0">
-              <div className="card-header bg-white py-3">
-                 <h5 className="m-0 text-primary fw-bold">Resumen de Venta</h5>
+
+          <div className="row">
+            {productos.map(prod => (
+              <div key={prod.id} className="col-md-4 mb-3">
+                <div className="card h-100">
+                  <div className="card-body">
+                    <h5 className="card-title">{prod.nombre}</h5>
+                    <p className="card-text text-primary fw-bold">${prod.precio}</p>
+                    <p className="small text-muted">Stock: {prod.stock}</p>
+                    <button 
+                      className="btn btn-success btn-sm w-100"
+                      onClick={() => agregarAlCarrito(prod)}
+                      disabled={prod.stock <= 0}
+                    >
+                      {prod.stock > 0 ? '+ Agregar' : 'Sin Stock'}
+                    </button>
+                  </div>
+                </div>
               </div>
-              
-              <div className="card-body">
-                {/* Formulario de Datos */}
-                <div className="mb-4">
-                    <DatosVentaForm
-                    formData={formData} 
-                    onChange={handleChange} 
-                    />
-                </div>
+            ))}
+          </div>
+        </div>
 
-                <hr className="my-4" />
+        {/* COLUMNA DERECHA: CARRITO Y CHECKOUT */}
+        <div className="col-md-5">
+          <div className="card p-3 shadow-sm">
+            <h4 className="d-flex justify-content-between align-items-center">
+              Carrito
+              <span className="badge bg-primary rounded-pill">{carrito.length}</span>
+            </h4>
+            
+            <ul className="list-group mb-3 mt-3">
+              {carrito.map((item, index) => (
+                <li key={index} className="list-group-item d-flex justify-content-between lh-sm">
+                  <div>
+                    <h6 className="my-0">{item.producto.nombre}</h6>
+                    <small className="text-muted">Cantidad: {item.cantidad}</small>
+                  </div>
+                  <div className="text-end">
+                    <span className="text-muted">${item.producto.precio * item.cantidad}</span>
+                    <button 
+                      className="btn btn-danger btn-sm ms-2"
+                      onClick={() => eliminarDelCarrito(item.producto.id)}
+                    >
+                      X
+                    </button>
+                  </div>
+                </li>
+              ))}
+              <li className="list-group-item d-flex justify-content-between">
+                <span>Total (CLP)</span>
+                <strong>${calcularTotal()}</strong>
+              </li>
+            </ul>
 
-                {/* Tabla de Items */}
-                <div className="mb-4">
-                    <TablaCarrito
-                    carrito={carrito} 
-                    onRemove={eliminarDelCarrito} 
-                    />
-                </div>
+            <hr />
 
-                {/* Totales y Botón Pagar */}
-                <div className="bg-light p-3 rounded">
-                    <ResumenTotales
-                    subtotal={subtotal}
-                    iva={iva}
-                    total={total}
-                    tipoDocumento={formData.tipoDocumento}
-                    onSubmit={crearVenta}
-                    />
-                </div>
+            {/* SELECCIÓN TIPO VENTA */}
+            <div className="mb-3">
+              <label className="form-label fw-bold">Tipo de Documento:</label>
+              <div className="btn-group w-100" role="group">
+                <input 
+                  type="radio" className="btn-check" name="btnradio" id="btnradio1" 
+                  autoComplete="off" checked={tipoVenta === 'boleta'}
+                  onChange={() => setTipoVenta('boleta')} 
+                />
+                <label className="btn btn-outline-primary" htmlFor="btnradio1">Boleta</label>
+
+                <input 
+                  type="radio" className="btn-check" name="btnradio" id="btnradio2" 
+                  autoComplete="off" checked={tipoVenta === 'factura'}
+                  onChange={() => setTipoVenta('factura')}
+                />
+                <label className="btn btn-outline-primary" htmlFor="btnradio2">Factura</label>
               </div>
             </div>
+
+            {/* FORMULARIO FACTURA (CONDICIONAL) */}
+            {tipoVenta === 'factura' && (
+              <div className="border p-2 rounded bg-light mb-3">
+                <h6 className="mb-2">Datos Cliente</h6>
+                <input name="rut_cliente" placeholder="RUT" className="form-control mb-2 form-control-sm" onChange={handleFacturaChange} value={datosFactura.rut_cliente}/>
+                <input name="razon_social" placeholder="Razón Social" className="form-control mb-2 form-control-sm" onChange={handleFacturaChange} value={datosFactura.razon_social}/>
+                <input name="giro" placeholder="Giro" className="form-control mb-2 form-control-sm" onChange={handleFacturaChange} value={datosFactura.giro}/>
+                <input name="direccion" placeholder="Dirección" className="form-control mb-2 form-control-sm" onChange={handleFacturaChange} value={datosFactura.direccion}/>
+              </div>
+            )}
+
+            <button 
+              className="btn btn-primary w-100 btn-lg" 
+              onClick={realizarVenta}
+              disabled={loading || carrito.length === 0}
+            >
+              {loading ? 'Procesando...' : 'FINALIZAR VENTA'}
+            </button>
+
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
-}
+};
+
+export default Ventas;
