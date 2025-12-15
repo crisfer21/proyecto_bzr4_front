@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useContext } from "react";
 import { AuthContext } from "../context/AuthContext";
+import BotonCaja from "./BotonCaja";
 
 export default function Navbar() {
   const { user, logout } = useContext(AuthContext);
@@ -38,8 +39,11 @@ export default function Navbar() {
                   <Link className="nav-link" to="/dashboard">Dashboard</Link>
                 </li>
 
-                {user.role === "admin" && (
+                {user.role === "jefe venta" && (
                   <>
+                    <li className="nav-item">
+                      <BotonCaja/>
+                    </li>
                     <li className="nav-item">
                       <Link className="nav-link" to="/productos">Productos</Link>
                     </li>

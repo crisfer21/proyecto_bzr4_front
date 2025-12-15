@@ -1,35 +1,52 @@
 import { useState, useContext } from "react";
 import Swal from "sweetalert2";
 import { AuthContext } from "../context/AuthContext";
+import { useNavigate } from "react-router-dom"; // 1. Importamos el hook
 
 export default function Login() {
   const { login } = useContext(AuthContext);
   const [username, setUser] = useState("");
   const [password, setPass] = useState("");
+  const navigate = useNavigate(); // 2. Inicializamos el hook
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await login(username, password);
+      // 3. CAPTURAMOS LOS DATOS:
+      // 'userData' es lo que retorna tu AuthContext (el objeto con el rol)
+      const userData = await login(username, password);
+
+      // Alerta visual rápida (se cierra sola en 1.5s)
       Swal.fire({
         title: "Bienvenido",
-        text: "Inicio de sesión exitoso",
+        text: "Iniciando sistema...",
         icon: "success",
-        confirmButtonColor: "#0d6efd" // Color azul Bootstrap
+        timer: 1500, 
+        showConfirmButton: false
       });
-      window.location.href = "/dashboard";
-    } catch {
+
+      // 4. LÓGICA DE REDIRECCIÓN POR ROL
+      if (userData.role === 'vendedor') {
+        navigate("/ventas");
+      } else if (userData.role === 'jefe venta') {
+        navigate("/reportes"); 
+      } else {
+        // Por seguridad, una ruta por defecto si el rol es desconocido
+        navigate("/dashboard");
+      }
+
+    } catch (error) {
+      console.error(error);
       Swal.fire({
         title: "Error",
-        text: "Credenciales incorrectas",
+        text: "Usuario o contraseña incorrectos",
         icon: "error",
-        confirmButtonColor: "#dc3545" // Color rojo Bootstrap
+        confirmButtonColor: "#dc3545"
       });
     }
   };
 
   return (
-    // Contenedor principal con fondo gris claro y altura mínima
     <div className="d-flex align-items-center justify-content-center vh-100 bg-light">
       <div className="container">
         <div className="row justify-content-center">
@@ -54,6 +71,7 @@ export default function Login() {
                       value={username}
                       onChange={(e) => setUser(e.target.value)}
                       required
+                      autoFocus
                     />
                   </div>
 
@@ -82,7 +100,6 @@ export default function Login() {
                 </form>
               </div>
               
-              {/* Pie de tarjeta opcional */}
               <div className="card-footer text-center py-3 border-0 bg-white">
                 <small className="text-muted">¿Olvidaste tu contraseña?</small>
               </div>

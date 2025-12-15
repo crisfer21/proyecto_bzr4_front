@@ -5,9 +5,9 @@ export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  // Agregamos un estado de carga inicial
   const [loading, setLoading] = useState(true);
 
+  // 1. Verificar sesión al cargar la página
   useEffect(() => {
     const checkAuth = async () => {
       const savedUser = localStorage.getItem("user");
@@ -16,53 +16,51 @@ export const AuthProvider = ({ children }) => {
       if (savedUser && accessToken) {
         try {
           setUser(JSON.parse(savedUser));
-          // Opcional: Podrías verificar aquí si el token sigue siendo válido con una llamada al backend
         } catch (e) {
-          console.error("Datos de usuario corruptos en storage", e);
-          localStorage.removeItem("user");
-          localStorage.removeItem("access_token");
-          localStorage.removeItem("refresh_token");
+          console.error("Error leyendo usuario", e);
+          localStorage.clear();
         }
       }
-      // Una vez verificado el storage, quitamos el loading
       setLoading(false);
     };
 
     checkAuth();
   }, []);
 
+  // 2. FUNCIÓN LOGIN
   const login = async (username, password) => {
     try {
+        // --- AQUÍ ESTÁ EL CAMBIO CLAVE ---
+        // Usamos "auth/login/" para coincidir con tu urls.py: path('api/auth/login/'...)
+        // (Asumimos que tu axios.js tiene configurado baseURL terminando en /api/)
         const res = await api.post("auth/login/", { username, password });
         
-        // IMPORTANTE: Asegúrate que tu backend envíe 'user'. 
-        // Si usas Django SimpleJWT por defecto, solo envía access y refresh.
-        // Necesitas un Serializer personalizado para recibir 'user'.
+        // Extraemos los datos que envía tu Serializer personalizado
         const { access, refresh, user: userData } = res.data;
 
+        // Guardamos en LocalStorage
         localStorage.setItem("access_token", access);
         localStorage.setItem("refresh_token", refresh);
         localStorage.setItem("user", JSON.stringify(userData));
 
+        // Actualizamos estado
         setUser(userData);
-        return true; 
+        
+        // RETORNAMOS los datos para que Login.jsx pueda leer el rol y redirigir
+        return userData; 
+
     } catch (error) {
-        // Mejoramos el log para depuración
         console.error("Error en Login:", error.response?.data || error.message);
         throw error;
     }
   };
 
   const logout = () => {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
-    localStorage.removeItem("user");
+    localStorage.clear();
     setUser(null);
-    // Redirigir al login es mejor manejarlo en el componente UI o Router
+    window.location.href = "/login"; // Forzamos la salida
   };
 
-  // Si está cargando la sesión inicial, no renderizamos la app aún
-  // Esto evita que el ProtectedRoute te saque al login mientras lee localStorage
   if (loading) {
     return <div className="text-center mt-5">Cargando sesión...</div>; 
   }
